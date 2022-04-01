@@ -5,6 +5,6 @@
 TOP=../..
 .include "$(TOP)/mk/os161.config.mk"
 
-SUBDIRS=true false sync mkdir rmdir pwd cat cp ln mv rm ls sh tac
+SUBDIRS=true false sync mkdir rmdir pwd cat cp ln mv rm ls sh tac hello
 
 .include "$(TOP)/mk/os161.subdir.mk"
