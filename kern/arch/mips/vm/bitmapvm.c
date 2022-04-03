@@ -86,19 +86,19 @@ static paddr_t
 getfreeppages(unsigned long npages)
 {
 	paddr_t addr;
-	uint32_t i, first, found;
+	int32_t i, first, found;
 
 	if (!is_initialized())
 		return 0;
 
 	spinlock_acquire(&mem_lock);
-	for (i = 0, first = found = -1; i < ram_frames; i++)
+	for (i = 0, first = found = -1; i < (int32_t)ram_frames; i++)
 	{
 		if (used_pages[i])
 		{
 			if (i == 0 || !used_pages[i - 1])
 				first = i; /* set first free in an interval */
-			if (i - first + 1 >= npages)
+			if (i - first + 1 >= (int32_t)npages)
 			{
 				found = first;
 				break;
@@ -108,7 +108,7 @@ getfreeppages(unsigned long npages)
 
 	if (found >= 0)
 	{
-		for (i = found; i < found + npages; i++)
+		for (i = found; i < found + (int32_t)npages; i++)
 		{
 			used_pages[i] = (unsigned char)0;
 		}
