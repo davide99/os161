@@ -21,7 +21,7 @@ static struct spinlock stealmem_lock = SPINLOCK_INITIALIZER;
 static struct spinlock mem_lock = SPINLOCK_INITIALIZER;
 static struct spinlock initialized_lock = SPINLOCK_INITIALIZER;
 
-static uint32_t *used_pages = NULL;
+static uint32_t *free_pages = NULL;
 static size_t *alloc_size = NULL;
 static size_t ram_frames = 0;
 static uint32_t offset_bits;
@@ -50,22 +50,22 @@ static bool is_initialized() {
 }
 
 void vm_bootstrap(void) {
-    uint32_t used_pages_sz, x;
+    uint32_t free_pages_sz, x;
 
     ram_frames = ram_getsize() / PAGE_SIZE;
-    used_pages_sz = ram_frames / 8; //Di quanti byte ho bisogno
+    free_pages_sz = ram_frames / 8; //Di quanti byte ho bisogno
 
     /* alloc freeRamFrame and alloc_size */
-    used_pages = kmalloc(used_pages_sz);
-    if (used_pages == NULL) return;
+    free_pages = kmalloc(free_pages_sz);
+    if (free_pages == NULL) return;
     alloc_size = kmalloc(sizeof(*alloc_size) * ram_frames);
     if (alloc_size == NULL) {
         /* reset to disable this vm management */
-        used_pages = NULL;
+        free_pages = NULL;
         return;
     }
 
-    memset(used_pages, 0xFF, used_pages_sz);
+    memset(free_pages, 0, free_pages_sz);
     memset(alloc_size, 0, sizeof(*alloc_size) * ram_frames);
 
     spinlock_acquire(&initialized_lock);
@@ -73,7 +73,7 @@ void vm_bootstrap(void) {
     spinlock_release(&initialized_lock);
 
     //calcolo log2(sizeof(uint32) * 8)
-	x = sizeof(*used_pages) * 8;
+	x = sizeof(*free_pages) * 8;
 	offset_bits = 0;
 
 	while (x >>= 1) offset_bits++; //Dovrebbe essere 5
@@ -110,7 +110,7 @@ static paddr_t getfreeppages(size_t npages) {
     spinlock_acquire(&mem_lock);
 
     for (i = contiguous = start = 0; i < ram_frames && contiguous < npages; i++) {
-        if (!bit_test(used_pages, i)) {  // Se non è usata
+        if (bit_test(free_pages, i)) {  // Se non è usata
             contiguous++;
 
             if (contiguous == 1) {  // Primo che trovo
@@ -123,7 +123,7 @@ static paddr_t getfreeppages(size_t npages) {
 
     if (contiguous >= npages) {  // Ne ho trovate abbastanza?
         for (i = start; i < start + npages; i++) {
-            bit_set(used_pages, i);  // Lo imposta a usato
+            bit_clear(free_pages, i);  // Lo imposta a usato
         }
 
         alloc_size[start] = npages;
@@ -168,7 +168,7 @@ static int freeppages(paddr_t addr, unsigned long npages) {
 
     spinlock_acquire(&mem_lock);
     for (i = first; i < first + npages; i++) {
-        bit_clear(used_pages, i);
+        bit_set(free_pages, i);
     }
     spinlock_release(&mem_lock);
 
