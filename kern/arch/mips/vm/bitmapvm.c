@@ -83,46 +83,42 @@ dumbvm_can_sleep(void)
  * Vede se ci sono pagine di cui è stata fatta la free
  */
 static paddr_t
-getfreeppages(unsigned long npages)
+getfreeppages(size_t npages)
 {
-	paddr_t addr;
-	int32_t i, first, found;
+	size_t i, contiguous, start;
+    paddr_t address;
 
-	if (!is_initialized())
-		return 0;
+    if (!is_initialized())
+        return 0;
 
-	spinlock_acquire(&mem_lock);
-	for (i = 0, first = found = -1; i < (int32_t)ram_frames; i++)
-	{
-		if (used_pages[i])
-		{
-			if (i == 0 || !used_pages[i - 1])
-				first = i; /* set first free in an interval */
-			if (i - first + 1 >= (int32_t)npages)
-			{
-				found = first;
-				break;
-			}
-		}
-	}
+    spinlock_acquire(&mem_lock);
 
-	if (found >= 0)
-	{
-		for (i = found; i < found + (int32_t)npages; i++)
-		{
-			used_pages[i] = (unsigned char)0;
-		}
-		alloc_size[found] = npages;
-		addr = (paddr_t)found * PAGE_SIZE;
-	}
-	else
-	{
-		addr = 0;
-	}
+    for (i=contiguous=start=0; i<ram_frames && contiguous < npages; i++) {
+        if (used_pages[i]){ //Se non è usata
+            contiguous++;
 
-	spinlock_release(&mem_lock);
+            if (contiguous == 1) { //Primo che trovo
+                start = i;
+            }
+        }else{
+            contiguous = 0;
+        }
+    }
 
-	return addr;
+    if (contiguous >= npages) { //Ne ho trovate abbastanza?
+        for(i=start; i<start+npages; i++){
+            used_pages[i] = 0;  //Lo imposta a usato
+        }
+
+        alloc_size[start] = npages;
+        address = (paddr_t)start * PAGE_SIZE;
+    } else {
+        address = 0;
+    }
+
+    spinlock_release(&mem_lock);
+
+    return address;
 }
 
 static paddr_t
