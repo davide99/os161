@@ -78,7 +78,7 @@ void vm_bootstrap(void) {
 
 	while (x >>= 1) offset_bits++; //Dovrebbe essere 5
 
-    offset_mask = (1U << offset_bits) - 1;
+    offset_mask = (1U << offset_bits) - 1; //0b11111
 }
 
 /*
