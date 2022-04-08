@@ -1,13 +1,13 @@
-#include <addrspace.h>
-#include <cpu.h>
-#include <current.h>
+#include <types.h>
 #include <kern/errno.h>
 #include <lib.h>
-#include <mips/tlb.h>
-#include <proc.h>
-#include <spinlock.h>
 #include <spl.h>
-#include <types.h>
+#include <cpu.h>
+#include <spinlock.h>
+#include <proc.h>
+#include <current.h>
+#include <mips/tlb.h>
+#include <addrspace.h>
 #include <vm.h>
 
 /* under dumbvm, always have 72k of user stack */
