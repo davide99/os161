@@ -21,11 +21,25 @@ static struct spinlock stealmem_lock = SPINLOCK_INITIALIZER;
 static struct spinlock mem_lock = SPINLOCK_INITIALIZER;
 static struct spinlock initialized_lock = SPINLOCK_INITIALIZER;
 
-static uint8_t *free_pages = NULL;
+static uint32_t *free_pages = NULL;
 static size_t *alloc_size = NULL;
 static size_t ram_frames = 0;
+static uint32_t offset_bits;
+static uint32_t offset_mask;
 
 static bool initialized = false;
+
+static inline uint32_t bit_test(uint32_t *array, uint32_t n) {
+	return array[n >> offset_bits] & (1U << (n & offset_mask));
+}
+
+static inline void bit_set(uint32_t *array, uint32_t n) {
+	array[n >> offset_bits] |= 1U << (n & offset_mask);
+}
+
+static inline void bit_clear(uint32_t *array, uint32_t n) {
+	array[n >> offset_bits] &= ~(1U << (n & offset_mask));
+}
 
 static bool is_initialized() {
     bool tmp_initialized;
@@ -36,9 +50,13 @@ static bool is_initialized() {
 }
 
 void vm_bootstrap(void) {
+    uint32_t free_pages_sz, x;
+
     ram_frames = ram_getsize() / PAGE_SIZE;
+    free_pages_sz = ram_frames / 8; //Di quanti byte ho bisogno
+
     /* alloc freeRamFrame and alloc_size */
-    free_pages = kmalloc(sizeof(*free_pages) * ram_frames);
+    free_pages = kmalloc(free_pages_sz);
     if (free_pages == NULL) return;
     alloc_size = kmalloc(sizeof(*alloc_size) * ram_frames);
     if (alloc_size == NULL) {
@@ -47,12 +65,20 @@ void vm_bootstrap(void) {
         return;
     }
 
-    memset(free_pages, 0, sizeof(*free_pages) * ram_frames);
+    memset(free_pages, 0, free_pages_sz);
     memset(alloc_size, 0, sizeof(*alloc_size) * ram_frames);
 
     spinlock_acquire(&initialized_lock);
     initialized = true;
     spinlock_release(&initialized_lock);
+
+    //calcolo log2(sizeof(uint32) * 8)
+	x = sizeof(*free_pages) * 8;
+	offset_bits = 0;
+
+	while (x >>= 1) offset_bits++; //Dovrebbe essere 5
+
+    offset_mask = (1U << offset_bits) - 1;
 }
 
 /*
@@ -84,7 +110,7 @@ static paddr_t getfreeppages(size_t npages) {
     spinlock_acquire(&mem_lock);
 
     for (i = contiguous = start = 0; i < ram_frames && contiguous < npages; i++) {
-        if (free_pages[i]) {  // Se non è usata
+        if (bit_test(free_pages, i)) {  // Se non è usata
             contiguous++;
 
             if (contiguous == 1) {  // Primo che trovo
@@ -97,7 +123,7 @@ static paddr_t getfreeppages(size_t npages) {
 
     if (contiguous >= npages) {  // Ne ho trovate abbastanza?
         for (i = start; i < start + npages; i++) {
-            free_pages[i] = 0;  // Lo imposta a usato
+            bit_clear(free_pages, i);  // Lo imposta a usato
         }
 
         alloc_size[start] = npages;
@@ -142,7 +168,7 @@ static int freeppages(paddr_t addr, unsigned long npages) {
 
     spinlock_acquire(&mem_lock);
     for (i = first; i < first + npages; i++) {
-        free_pages[i] = (unsigned char)1;
+        bit_set(free_pages, i);
     }
     spinlock_release(&mem_lock);
 
