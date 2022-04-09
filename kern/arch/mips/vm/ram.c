@@ -109,6 +109,13 @@ ram_stealmem(unsigned long npages)
 	return paddr;
 }
 
+size_t
+ram_getmaxpages(void)
+{
+	size_t size = (lastpaddr - firstpaddr)/PAGE_SIZE;
+	return size;
+}
+
 /*
  * This function is intended to be called by the VM system when it
  * initializes in order to find out what memory it has available to

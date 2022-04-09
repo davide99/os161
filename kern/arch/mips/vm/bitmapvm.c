@@ -26,6 +26,7 @@ static size_t *alloc_size = NULL;
 static size_t ram_frames = 0;
 static uint32_t offset_bits;
 static uint32_t offset_mask;
+static paddr_t start_address;
 
 static bool initialized = false;
 
@@ -65,12 +66,12 @@ void vm_bootstrap(void) {
         return;
     }
 
-    memset(free_pages, 0, free_pages_sz);
+    memset(free_pages, 0xFF, free_pages_sz);    //Tutti liberi inzialmente
     memset(alloc_size, 0, sizeof(*alloc_size) * ram_frames);
 
-    spinlock_acquire(&initialized_lock);
-    initialized = true;
-    spinlock_release(&initialized_lock);
+    spinlock_acquire(&stealmem_lock);
+    start_address = ram_stealmem(ram_getmaxpages());    //Alloco tutto
+    spinlock_release(&stealmem_lock);
 
     //calcolo log2(sizeof(uint32) * 8)
 	x = sizeof(*free_pages) * 8;
@@ -79,6 +80,10 @@ void vm_bootstrap(void) {
 	while (x >>= 1) offset_bits++; //Dovrebbe essere 5
 
     offset_mask = (1U << offset_bits) - 1; //0b11111
+
+    spinlock_acquire(&initialized_lock);
+    initialized = true;
+    spinlock_release(&initialized_lock);
 }
 
 /*
@@ -102,19 +107,19 @@ static void dumbvm_can_sleep(void) {
  * Vede se ci sono pagine di cui è stata fatta la free
  */
 static paddr_t getfreeppages(size_t npages) {
-    size_t i, contiguous, start;
+    size_t i, contiguous, start_page;
     paddr_t address;
 
     if (!is_initialized()) return 0;
 
     spinlock_acquire(&mem_lock);
 
-    for (i = contiguous = start = 0; i < ram_frames && contiguous < npages; i++) {
+    for (i = contiguous = start_page = 0; i < ram_frames && contiguous < npages; i++) {
         if (bit_test(free_pages, i)) {  // Se non è usata
             contiguous++;
 
             if (contiguous == 1) {  // Primo che trovo
-                start = i;
+                start_page = i;
             }
         } else {
             contiguous = 0;
@@ -122,12 +127,12 @@ static paddr_t getfreeppages(size_t npages) {
     }
 
     if (contiguous >= npages) {  // Ne ho trovate abbastanza?
-        for (i = start; i < start + npages; i++) {
+        for (i = start_page; i < start_page + npages; i++) {
             bit_clear(free_pages, i);  // Lo imposta a usato
         }
 
-        alloc_size[start] = npages;
-        address = (paddr_t)start * PAGE_SIZE;
+        alloc_size[start_page] = npages;
+        address = start_address + start_page * PAGE_SIZE;
     } else {
         address = 0;
     }
@@ -139,6 +144,7 @@ static paddr_t getfreeppages(size_t npages) {
 
 static paddr_t getppages(unsigned long npages) {
     paddr_t addr;
+    size_t i;
 
     /* try freed pages first */
     addr = getfreeppages(npages);
@@ -150,7 +156,10 @@ static paddr_t getppages(unsigned long npages) {
     }
     if (addr != 0 && is_initialized()) {
         spinlock_acquire(&mem_lock);
-        alloc_size[addr / PAGE_SIZE] = npages;
+        alloc_size[(addr - start_address) / PAGE_SIZE] = npages;
+        for (i = addr/PAGE_SIZE; i < addr/PAGE_SIZE + npages; i++) {
+            bit_clear(free_pages, i);  // Lo imposta a usato
+        }
         spinlock_release(&mem_lock);
     }
 
@@ -162,7 +171,7 @@ static int freeppages(paddr_t addr, unsigned long npages) {
     paddr_t first;
 
     if (!is_initialized()) return 0;
-    first = addr / PAGE_SIZE;
+    first = (addr - start_address) / PAGE_SIZE;
     KASSERT(alloc_size != NULL);
     KASSERT(ram_frames > first);
 
@@ -189,8 +198,8 @@ vaddr_t alloc_kpages(unsigned npages) {
 
 void free_kpages(vaddr_t addr) {
     if (is_initialized()) {
-        paddr_t paddr = addr - MIPS_KSEG0;
-        size_t first = paddr / PAGE_SIZE;
+        paddr_t paddr = addr - MIPS_KSEG0; //Contrario di PADDR_TO_KVADDR
+        size_t first = (paddr - start_address) / PAGE_SIZE;
         KASSERT(alloc_size != NULL);
         KASSERT(ram_frames > first);
         freeppages(paddr, alloc_size[first]);
