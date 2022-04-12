@@ -14,9 +14,6 @@
 /* (this must be > 64K so argument blocks of size ARG_MAX will fit) */
 #define DUMBVM_STACKPAGES 18
 
-/*
- * Wrap ram_stealmem in a spinlock.
- */
 static struct spinlock stealmem_lock = SPINLOCK_INITIALIZER;
 static struct spinlock mem_lock = SPINLOCK_INITIALIZER;
 static struct spinlock initialized_lock = SPINLOCK_INITIALIZER;
@@ -29,6 +26,8 @@ static uint32_t offset_mask;
 static paddr_t start_address;
 
 static bool initialized = false;
+
+#define PADDR_TO_PAGE(x) (((x)-start_address)/PAGE_SIZE)
 
 static inline uint32_t bit_test(uint32_t *array, uint32_t n) {
 	return array[n >> offset_bits] & (1U << (n & offset_mask));
@@ -142,36 +141,28 @@ static paddr_t getfreeppages(size_t npages) {
     return address;
 }
 
-static paddr_t getppages(unsigned long npages) {
+static paddr_t getppages(size_t npages) {
     paddr_t addr;
-    size_t i;
 
-    /* try freed pages first */
-    addr = getfreeppages(npages);
-    if (addr == 0) {
-        /* call stealmem */
+    if (is_initialized()){
+        //Se il vm è inizializzato utilizzo lui
+        addr = getfreeppages(npages);
+    }else{
+        //Altrimenti uso la stealmem brutalmente
         spinlock_acquire(&stealmem_lock);
         addr = ram_stealmem(npages);
         spinlock_release(&stealmem_lock);
-    }
-    if (addr != 0 && is_initialized()) {
-        spinlock_acquire(&mem_lock);
-        alloc_size[(addr - start_address) / PAGE_SIZE] = npages;
-        for (i = addr/PAGE_SIZE; i < addr/PAGE_SIZE + npages; i++) {
-            bit_clear(free_pages, i);  // Lo imposta a usato
-        }
-        spinlock_release(&mem_lock);
     }
 
     return addr;
 }
 
-static int freeppages(paddr_t addr, unsigned long npages) {
+static int freeppages(paddr_t addr, size_t npages) {
     uint32_t i;
     paddr_t first;
 
     if (!is_initialized()) return 0;
-    first = (addr - start_address) / PAGE_SIZE;
+    first = PADDR_TO_PAGE(addr);
     KASSERT(alloc_size != NULL);
     KASSERT(ram_frames > first);
 
@@ -185,24 +176,25 @@ static int freeppages(paddr_t addr, unsigned long npages) {
 }
 
 /* Allocate/free some kernel-space virtual pages */
-vaddr_t alloc_kpages(unsigned npages) {
+vaddr_t alloc_kpages(size_t npages) {
     paddr_t pa;
 
     dumbvm_can_sleep();
     pa = getppages(npages);
     if (pa == 0) {
         return 0;
+    } else {
+        return PADDR_TO_KVADDR(pa);
     }
-    return PADDR_TO_KVADDR(pa);
 }
 
 void free_kpages(vaddr_t addr) {
     if (is_initialized()) {
-        paddr_t paddr = addr - MIPS_KSEG0; //Contrario di PADDR_TO_KVADDR
-        size_t first = (paddr - start_address) / PAGE_SIZE;
+        paddr_t paddr = KVADDR_TO_PADDR(addr); //Contrario di PADDR_TO_KVADDR
+        size_t first = PADDR_TO_PAGE(paddr);
         KASSERT(alloc_size != NULL);
         KASSERT(ram_frames > first);
-        freeppages(paddr, alloc_size[first]);
+        KASSERT(freeppages(paddr, alloc_size[first]));
     }
 }
 
@@ -326,9 +318,9 @@ struct addrspace *as_create(void) {
 
 void as_destroy(struct addrspace *as) {
     dumbvm_can_sleep();
-    freeppages(as->as_pbase1, as->as_npages1);
-    freeppages(as->as_pbase2, as->as_npages2);
-    freeppages(as->as_stackpbase, DUMBVM_STACKPAGES);
+    KASSERT(freeppages(as->as_pbase1, as->as_npages1));
+    KASSERT(freeppages(as->as_pbase2, as->as_npages2));
+    KASSERT(freeppages(as->as_stackpbase, DUMBVM_STACKPAGES));
     kfree(as);
 }
 
