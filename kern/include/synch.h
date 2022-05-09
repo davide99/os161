@@ -36,6 +36,7 @@
 
 
 #include <spinlock.h>
+#include "opt-synch.h"
 
 /*
  * Dijkstra-style semaphore.
@@ -77,6 +78,12 @@ struct lock {
         HANGMAN_LOCKABLE(lk_hangman);   /* Deadlock detector hook. */
         // add what you need here
         // (don't forget to mark things volatile as needed)
+
+#if OPT_SYNCH
+        struct semaphore *lk_sem;
+        volatile struct thread *lk_owner;
+        struct spinlock lk_lock;
+#endif
 };
 
 struct lock *lock_create(const char *name);

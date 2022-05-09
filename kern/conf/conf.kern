@@ -445,3 +445,4 @@ file		test/kmalloctest.c
 file		test/fstest.c
 optfile net	test/nettest.c
 
+defoption synch
