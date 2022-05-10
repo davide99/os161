@@ -154,14 +154,26 @@ lock_create(const char *name)
                 return NULL;
         }
 
-	HANGMAN_LOCKABLEINIT(&lock->lk_hangman, lock->lk_name);
+	//HANGMAN_LOCKABLEINIT(&lock->lk_hangman, lock->lk_name);
 
         // add stuff here as needed
 #if OPT_SYNCH
-        lock->lk_sem = sem_create(lock->lk_name, 1);
-        KASSERT(lock->lk_sem != NULL);
-        lock->lk_owner = NULL;
-        spinlock_init(&lock->lk_lock);
+        #ifndef LOCK2
+                lock->lk_sem = sem_create(lock->lk_name, 1);
+                KASSERT(lock->lk_sem != NULL);
+                lock->lk_owner = NULL;
+                spinlock_init(&lock->lk_lock);
+        #else
+                lock->lk_wchan = wchan_create(lock->lk_name);
+	        if (lock->lk_wchan == NULL) {
+		        kfree(lock->lk_name);
+		        kfree(lock);
+		        return NULL;
+	        }
+
+                lock->lk_owner = NULL;
+	        spinlock_init(&lock->lk_lock);
+        #endif
 #endif
 
         return lock;
@@ -175,7 +187,11 @@ lock_destroy(struct lock *lock)
         // add stuff here as needed
 #if OPT_SYNCH
         spinlock_cleanup(&lock->lk_lock);
-        sem_destroy(lock->lk_sem);
+        #ifndef LOCK2
+                sem_destroy(lock->lk_sem);
+        #else
+                wchan_destroy(lock->lk_wchan);
+        #endif
 #endif
 
         kfree(lock->lk_name);
@@ -194,11 +210,18 @@ lock_acquire(struct lock *lock)
         KASSERT(!lock_do_i_hold(lock)); //Non devo già possedere il lock che voglio acquisire
         KASSERT(!curthread->t_in_interrupt);
 
-        P(lock->lk_sem);
-        spinlock_acquire(&lock->lk_lock);
+        #ifndef LOCK2
+                P(lock->lk_sem);
+                spinlock_acquire(&lock->lk_lock);
+        #else
+                spinlock_acquire(&lock->lk_lock);
+                while (lock->lk_owner != NULL) {
+		        wchan_sleep(lock->lk_wchan, &lock->lk_lock);
+                }
+        #endif
         KASSERT(lock->lk_owner == NULL);
         lock->lk_owner = curthread;
-        spinlock_release(&lock->lk_lock);
+	spinlock_release(&lock->lk_lock);
 #endif
 
 	/* Call this (atomically) once the lock is acquired */
@@ -217,7 +240,12 @@ lock_release(struct lock *lock)
         KASSERT(lock_do_i_hold(lock)); //Devo possederlo per rilasciarlo
         spinlock_acquire(&lock->lk_lock);
         lock->lk_owner = NULL;
-        V(lock->lk_sem);        //Signal
+        KASSERT(lock->lk_owner == NULL);
+        #ifndef LOCK2
+                V(lock->lk_sem);        //Signal
+        #else
+	        wchan_wakeone(lock->lk_wchan, &lock->lk_lock);
+        #endif
         spinlock_release(&lock->lk_lock);
 #endif
 
