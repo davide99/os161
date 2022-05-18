@@ -48,6 +48,7 @@
 #include <current.h>
 #include <addrspace.h>
 #include <vnode.h>
+#include <synch.h>
 
 /*
  * The process for the kernel; this holds all the kernel-only threads.
@@ -81,6 +82,8 @@ proc_create(const char *name)
 
 	/* VFS fields */
 	proc->p_cwd = NULL;
+
+	proc->p_sem = sem_create(name, 0);
 
 	return proc;
 }
@@ -167,6 +170,8 @@ proc_destroy(struct proc *proc)
 
 	KASSERT(proc->p_numthreads == 0);
 	spinlock_cleanup(&proc->p_lock);
+
+	sem_destroy(proc->p_sem);
 
 	kfree(proc->p_name);
 	kfree(proc);
@@ -317,4 +322,17 @@ proc_setas(struct addrspace *newas)
 	proc->p_addrspace = newas;
 	spinlock_release(&proc->p_lock);
 	return oldas;
+}
+
+int proc_wait(struct proc *proc) {
+	int return_status;
+
+	KASSERT(proc != NULL);
+	KASSERT(proc != kproc);	//Non può essere un processo kernel (solo userspace)
+
+	P(proc->p_sem);
+
+	return_status = proc->p_status;
+	proc_destroy(proc);
+	return return_status;
 }
