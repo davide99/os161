@@ -35,6 +35,7 @@
 #include <thread.h>
 #include <current.h>
 #include <syscall.h>
+#include <addrspace.h>
 
 
 /*
@@ -122,6 +123,17 @@ syscall(struct trapframe *tf)
 		err = sys_write(tf->tf_a0, (void*)tf->tf_a1, tf->tf_a2) < 0;
 		break;
 
+		case SYS_waitpid:
+		retval = sys_waitpid((pid_t)tf->tf_a0, (userptr_t)tf->tf_a1, (int)tf->tf_a2);
+		err = retval < 0 ? ENOSYS : 0;
+		break;
+
+		case SYS_getpid:
+		retval = sys_getpid();
+		err = retval < 0 ? ENOSYS : 0;
+		break;
+
+
 	    /* Add stuff here */
 
 	    default:
@@ -170,5 +182,15 @@ syscall(struct trapframe *tf)
 void
 enter_forked_process(struct trapframe *tf)
 {
-	(void)tf;
+	// Duplicate frame so it's on stack
+	struct trapframe forkedTf = *tf; // copy trap frame onto kernel stack
+
+	forkedTf.tf_v0 = 0; // return value is 0
+    forkedTf.tf_a3 = 0; // return with success
+
+	forkedTf.tf_epc += 4; // return to next instruction
+	
+	as_activate();
+
+	mips_usermode(&forkedTf);
 }

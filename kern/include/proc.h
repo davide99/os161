@@ -73,7 +73,7 @@ struct proc {
 	/* add more material here as needed */
 
 	int p_status;
-	pid_t pid;
+	pid_t p_pid;
 	struct semaphore *p_sem;
 };
 
@@ -103,5 +103,8 @@ struct addrspace *proc_setas(struct addrspace *);
 
 /* Wait for process termination and return exit status */
 int proc_wait(struct proc *proc);
+
+/* Get process from pid */
+struct proc *proc_search_pid(pid_t pid);
 
 #endif /* _PROC_H_ */

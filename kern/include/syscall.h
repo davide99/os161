@@ -61,5 +61,8 @@ int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
 void sys__exit(int code);
 ssize_t sys_read(int fd, userptr_t buf, size_t count);
 ssize_t sys_write(int fd, const userptr_t buf, size_t count);
+int sys_waitpid(pid_t pid, userptr_t statusp, int options);
+pid_t sys_getpid(void);
+int sys_fork(struct trapframe *ctf, pid_t *retval);
 
 #endif /* _SYSCALL_H_ */
